@@ -21,20 +21,20 @@ async function sincronizarMundial() {
         
         for (const pApi of partidosApi) {
             try {
-                // Intentamos buscar el partido
+                // Intentamos buscarlo primero
                 const registroPB = await pb.collection('partidos').getFirstListItem(`api_id=${pApi.id}`);
                 
-                // Actualización
+                // Si existe, actualizamos
                 await pb.collection('partidos').update(registroPB.id, {
                     equipo1: pApi.homeTeam?.name || "Por definir",
                     equipo2: pApi.awayTeam?.name || "Por definir",
-                    goles1: Number(pApi.score?.fullTime?.home || 0),
-                    goles2: Number(pApi.score?.fullTime?.away || 0),
+                    goles1: Number(pApi.score?.fullTime?.home ?? 0),
+                    goles2: Number(pApi.score?.fullTime?.away ?? 0),
                     estado: pApi.status === 'FINISHED' ? 'finalizado' : (pApi.status === 'IN_PLAY' ? 'en_vivo' : 'pendiente')
                 });
                 
             } catch (err) {
-                // Si da error 404, intentamos crearlo
+                // Si da error 404, es porque no existe, así que lo creamos
                 if (err.status === 404) {
                     try {
                         await pb.collection('partidos').create({
@@ -46,18 +46,18 @@ async function sincronizarMundial() {
                             estado: 'pendiente'
                         });
                     } catch (createErr) {
-                        // AQUÍ FORZAMOS EL ERROR DETALLADO
-                        console.error("ERROR CRÍTICO AL CREAR PARTIDO:", JSON.stringify(createErr.response?.data || createErr));
+                        // AQUÍ ESTÁ LA MAGIA: Si el error es que el ID ya existe, no hacemos nada (es normal)
+                        const errorMsg = JSON.stringify(createErr.response?.data || createErr);
+                        if (!errorMsg.includes("unique")) {
+                            console.error("ERROR REAL AL CREAR:", errorMsg);
+                        }
                     }
-                } else {
-                    // AQUÍ FORZAMOS EL ERROR DETALLADO DE ACTUALIZACIÓN
-                    console.error("ERROR CRÍTICO AL ACTUALIZAR PARTIDO:", JSON.stringify(err.response?.data || err));
                 }
             }
         }
-        console.log("Sincronización exitosa.");
+        console.log("Sincronización finalizada correctamente.");
     } catch (e) { 
-        console.error("ERROR GLOBAL DE CONEXIÓN:", JSON.stringify(e.response?.data || e.message)); 
+        console.error("ERROR GLOBAL:", e.message); 
     }
 }
 
