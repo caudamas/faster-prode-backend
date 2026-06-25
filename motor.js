@@ -24,23 +24,47 @@ async function sincronizarMundial() {
 
         const partidosApi = respuestaApi.data.matches;
         
-        for (const pApi of partidosApi) {
+        // --- NUEVO FILTRO ESTRICTO: SOLO DE 16AVOS EN ADELANTE ---
+        // Ignoramos todos los partidos que sean de Fase de Grupos ('GROUP_STAGE')
+        const partidosFiltrados = partidosApi.filter(p => p.stage !== 'GROUP_STAGE');
+        
+        for (const pApi of partidosFiltrados) {
             try {
                 // Buscamos
                 const lista = await pb.collection('partidos').getList(1, 1, { filter: `api_id=${pApi.id}` });
                 
                 if (lista.items.length > 0) {
                     const record = lista.items[0];
-                    await pb.collection('partidos').update(record.id, {
+                    
+                    let dataActualizar = {
                         goles1: Number(pApi.score?.fullTime?.home ?? 0),
                         goles2: Number(pApi.score?.fullTime?.away ?? 0),
                         estado: pApi.status === 'FINISHED' ? 'finalizado' : (pApi.status === 'IN_PLAY' ? 'en_vivo' : 'pendiente')
-                    });
+                    };
+
+                    // ACTUALIZACIÓN AUTOMÁTICA DE CLASIFICADOS:
+                    // Si en tu BD dice "Por definir" pero la FIFA ya confirmó qué país juega, se actualiza solo.
+                    const nombreApi1 = pApi.homeTeam?.name || 'Por definir';
+                    const nombreApi2 = pApi.awayTeam?.name || 'Por definir';
+
+                    if (record.equipo1 === 'Por definir' && nombreApi1 !== 'Por definir') {
+                        dataActualizar.equipo1 = nombreApi1;
+                        dataActualizar.codigo1 = pApi.homeTeam?.tla ? pApi.homeTeam.tla.slice(0, 2).toLowerCase() : "tbd";
+                    }
+                    
+                    if (record.equipo2 === 'Por definir' && nombreApi2 !== 'Por definir') {
+                        dataActualizar.equipo2 = nombreApi2;
+                        dataActualizar.codigo2 = pApi.awayTeam?.tla ? pApi.awayTeam.tla.slice(0, 2).toLowerCase() : "tbd";
+                    }
+
+                    await pb.collection('partidos').update(record.id, dataActualizar);
                 } else {
                     await pb.collection('partidos').create({
                         api_id: pApi.id,
                         equipo1: pApi.homeTeam?.name || "Por definir",
                         equipo2: pApi.awayTeam?.name || "Por definir",
+                        codigo1: pApi.homeTeam?.tla ? pApi.homeTeam.tla.slice(0, 2).toLowerCase() : "tbd",
+                        codigo2: pApi.awayTeam?.tla ? pApi.awayTeam.tla.slice(0, 2).toLowerCase() : "tbd",
                         estado: 'pendiente'
                     });
                 }
