@@ -38,22 +38,31 @@ async function sincronizarMundial() {
             headers: { 'x-apisports-key': API_TOKEN }
         });
 
-        // La nueva API devuelve los datos en el array 'response'
-        const partidosApi = respuestaApi.data.response;
+        // DETECCIÓN ESTRICTA DE ERRORES DE API
+        if (respuestaApi.data.errors && Object.keys(respuestaApi.data.errors).length > 0) {
+            console.error("ERROR RECHAZO DE API-SPORTS:", JSON.stringify(respuestaApi.data.errors));
+            return;
+        }
+
+        const partidosApi = respuestaApi.data.response || [];
+        console.log(`TOTAL PARTIDOS ENCONTRADOS EN LA API: ${partidosApi.length}`);
         
-        // Filtro estricto: Solo de 16avos en adelante (Excluimos los que contengan 'Group')
-        const partidosFiltrados = partidosApi.filter(p => !p.league.round.includes('Group'));
+        // Filtro estricto y corregido: Solo de 16avos en adelante (Excluimos los que contengan 'Group')
+        const partidosFiltrados = partidosApi.filter(p => {
+            const ronda = p.league?.round || '';
+            return !ronda.includes('Group');
+        });
+
+        console.log(`TOTAL PARTIDOS DE FASE ELIMINATORIA (16avos en adelante): ${partidosFiltrados.length}`);
         
         for (const pApi of partidosFiltrados) {
             try {
                 const apiId = pApi.fixture.id;
                 const lista = await pb.collection('partidos').getList(1, 1, { filter: `api_id=${apiId}` });
                 
-                // LOG DE DIAGNÓSTICO: Veremos en Render exactamente qué países envía la API
                 const nombreEquip1 = pApi.teams.home.name || "Por definir";
                 const nombreEquip2 = pApi.teams.away.name || "Por definir";
-                console.log(`Partido ${apiId} (${pApi.league.round}): Local -> ${nombreEquip1}, Visitante -> ${nombreEquip2}`);
-
+                
                 const codBandera1 = obtenerCodigoBandera(nombreEquip1);
                 const codBandera2 = obtenerCodigoBandera(nombreEquip2);
 
@@ -93,7 +102,7 @@ async function sincronizarMundial() {
                 }
                 await sleep(500); 
             } catch (err) {
-                if (err.status !== 400) console.error("Error en partido:", pApi.fixture?.id);
+                if (err.status !== 400) console.error("Error en PocketBase con el partido:", pApi.fixture?.id, err.message);
             }
         }
         console.log("Sincronización finalizada.");
