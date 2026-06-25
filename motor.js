@@ -2,11 +2,11 @@ import PocketBase from 'pocketbase';
 import axios from 'axios';
 
 // --- CONFIGURACIÓN ---
-// El API_TOKEN es el único que dejamos fijo aquí
-const API_TOKEN = 'e9a9228d3a9f48b0952544fa76efd3c9'; 
+// Sustituí 'TU_TOKEN_REAL' por tu API Key de football-data.org
+const API_TOKEN = 'e9a9228d3a9f48b0952544fa76efd3c9';
 const URL_POCKETBASE = 'https://fasterprode.pockethost.io/';
 
-// Estas credenciales se leen desde el panel de Render (Environment Variables)
+// Estas variables se leen del panel de Render (Settings -> Environment)
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -16,8 +16,8 @@ async function sincronizarMundial() {
     try {
         console.log("Iniciando sincronización...");
         
-        // Autenticación segura usando variables de entorno
-        await pb.admins.authWithPassword(ADMIN_EMAIL, ADMIN_PASSWORD);
+        // Autenticación usando la colección de superusuarios (Fix para versión nueva)
+        await pb.collection('_superusers').authWithPassword(ADMIN_EMAIL, ADMIN_PASSWORD);
         
         const respuestaApi = await axios.get(`https://api.football-data.org/v4/competitions/2000/matches`, {
             headers: { 'X-Auth-Token': API_TOKEN }
@@ -27,12 +27,11 @@ async function sincronizarMundial() {
         
         for (const pApi of partidosApi) {
             try {
-                // Buscamos el partido en nuestra BD
+                // Buscamos el partido en nuestra base
                 const registroPB = await pb.collection('partidos').getFirstListItem(`api_id=${pApi.id}`);
                 
                 // --- REGLA DE ORO: PROTECCIÓN DE NOMBRES ---
-                // Solo actualizamos el nombre si el valor actual en la BD es "Por definir" 
-                // Y la API de FIFA ya tiene un nombre real (no "Por definir")
+                // Solo actualizamos si el valor actual es "Por definir" y la API trae un nombre real
                 const nombreApi1 = pApi.homeTeam?.name || 'Por definir';
                 const nombreApi2 = pApi.awayTeam?.name || 'Por definir';
 
@@ -44,7 +43,7 @@ async function sincronizarMundial() {
                     ? nombreApi2 
                     : registroPB.equipo2;
                 
-                // Actualizamos solo los datos que corresponden
+                // Actualizamos goles y estado, pero respetamos el nombre que ya guardamos
                 await pb.collection('partidos').update(registroPB.id, {
                     equipo1: nuevoEquipo1,
                     equipo2: nuevoEquipo2,
@@ -54,7 +53,7 @@ async function sincronizarMundial() {
                 });
                 
             } catch (err) {
-                // Si el partido no existe en la BD (Error 404), lo creamos
+                // Si el partido no existe, lo creamos
                 if (err.status === 404) {
                     await pb.collection('partidos').create({
                         api_id: pApi.id,
@@ -73,8 +72,6 @@ async function sincronizarMundial() {
     }
 }
 
-// Correr el motor cada 60 segundos
-setInterval(sincronizarMundial, 60000);
-
-// Ejecutar una vez al iniciar
+// Ejecutar al arrancar y luego cada 60 segundos
 sincronizarMundial();
+setInterval(sincronizarMundial, 60000);
