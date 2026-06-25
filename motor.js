@@ -3,8 +3,10 @@ import axios from 'axios';
 
 const API_TOKEN = 'e9a9228d3a9f48b0952544fa76efd3c9'; 
 const URL_POCKETBASE = 'https://fasterprode.pockethost.io/';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+// REEMPLAZÁ ESTO CON TU CORREO Y CONTRASEÑA REALES DE POCKETHOST
+const ADMIN_EMAIL = 'nazaortiz001@hotmail.com'; 
+const ADMIN_PASSWORD = 'Naza140501-';
 
 const pb = new PocketBase(URL_POCKETBASE);
 
