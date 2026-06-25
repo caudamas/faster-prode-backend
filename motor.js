@@ -8,6 +8,9 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 const pb = new PocketBase(URL_POCKETBASE);
 
+// Función para esperar un poco entre peticiones (evita saturar el server)
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
 async function sincronizarMundial() {
     try {
         console.log("Iniciando sincronización...");
@@ -21,45 +24,35 @@ async function sincronizarMundial() {
         
         for (const pApi of partidosApi) {
             try {
-                // Intentamos buscarlo primero
-                const registroPB = await pb.collection('partidos').getFirstListItem(`api_id=${pApi.id}`);
+                // Buscamos
+                const lista = await pb.collection('partidos').getList(1, 1, { filter: `api_id=${pApi.id}` });
                 
-                // Si existe, actualizamos
-                await pb.collection('partidos').update(registroPB.id, {
-                    equipo1: pApi.homeTeam?.name || "Por definir",
-                    equipo2: pApi.awayTeam?.name || "Por definir",
-                    goles1: Number(pApi.score?.fullTime?.home ?? 0),
-                    goles2: Number(pApi.score?.fullTime?.away ?? 0),
-                    estado: pApi.status === 'FINISHED' ? 'finalizado' : (pApi.status === 'IN_PLAY' ? 'en_vivo' : 'pendiente')
-                });
-                
-            } catch (err) {
-                // Si da error 404, es porque no existe, así que lo creamos
-                if (err.status === 404) {
-                    try {
-                        await pb.collection('partidos').create({
-                            api_id: pApi.id,
-                            equipo1: pApi.homeTeam?.name || "Por definir",
-                            equipo2: pApi.awayTeam?.name || "Por definir",
-                            codigo1: pApi.homeTeam?.tla ? pApi.homeTeam.tla.slice(0, 2).toLowerCase() : "tbd",
-                            codigo2: pApi.awayTeam?.tla ? pApi.awayTeam.tla.slice(0, 2).toLowerCase() : "tbd",
-                            estado: 'pendiente'
-                        });
-                    } catch (createErr) {
-                        // AQUÍ ESTÁ LA MAGIA: Si el error es que el ID ya existe, no hacemos nada (es normal)
-                        const errorMsg = JSON.stringify(createErr.response?.data || createErr);
-                        if (!errorMsg.includes("unique")) {
-                            console.error("ERROR REAL AL CREAR:", errorMsg);
-                        }
-                    }
+                if (lista.items.length > 0) {
+                    const record = lista.items[0];
+                    await pb.collection('partidos').update(record.id, {
+                        goles1: Number(pApi.score?.fullTime?.home ?? 0),
+                        goles2: Number(pApi.score?.fullTime?.away ?? 0),
+                        estado: pApi.status === 'FINISHED' ? 'finalizado' : (pApi.status === 'IN_PLAY' ? 'en_vivo' : 'pendiente')
+                    });
+                } else {
+                    await pb.collection('partidos').create({
+                        api_id: pApi.id,
+                        equipo1: pApi.homeTeam?.name || "Por definir",
+                        equipo2: pApi.awayTeam?.name || "Por definir",
+                        estado: 'pendiente'
+                    });
                 }
+                await sleep(500); // Pausa de medio segundo para no saturar
+            } catch (err) {
+                // Ignoramos errores de duplicados, reportamos otros
+                if (err.status !== 400) console.error("Error en partido:", pApi.id);
             }
         }
-        console.log("Sincronización finalizada correctamente.");
+        console.log("Sincronización finalizada.");
     } catch (e) { 
-        console.error("ERROR GLOBAL:", e.message); 
+        console.error("Error fatal en el motor:", e.message); 
     }
 }
 
 sincronizarMundial();
-setInterval(sincronizarMundial, 60000);
+setInterval(sincronizarMundial, 300000); // Cambiado a 5 minutos (300,000ms) para que no moleste tanto
