@@ -4,7 +4,7 @@ import axios from 'axios';
 const API_TOKEN = 'e9a9228d3a9f48b0952544fa76efd3c9'; 
 const URL_POCKETBASE = 'https://fasterprode.pockethost.io/';
 
-// REEMPLAZÁ ESTO CON TU CORREO Y CONTRASEÑA REALES DE POCKETHOST
+// Credenciales directas de PocketHost
 const ADMIN_EMAIL = 'nazaortiz001@hotmail.com'; 
 const ADMIN_PASSWORD = 'Naza140501-';
 
@@ -12,6 +12,19 @@ const pb = new PocketBase(URL_POCKETBASE);
 
 // Función para esperar un poco entre peticiones (evita saturar el server)
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// MAPEO INTELIGENTE: Traduce los códigos de la FIFA al formato real de las banderas automáticamente
+function obtenerCodigoBandera(tla) {
+    if (!tla) return 'tbd';
+    const mapa = {
+        'ARG': 'ar', 'BRA': 'br', 'FRA': 'fr', 'GER': 'de', 'ESP': 'es', 
+        'ENG': 'gb', 'NED': 'nl', 'POR': 'pt', 'BEL': 'be', 'CRO': 'hr', 
+        'ITA': 'it', 'MEX': 'mx', 'USA': 'us', 'CAN': 'ca', 'JPN': 'jp', 
+        'KOR': 'kr', 'KSA': 'sa', 'MAR': 'ma', 'SEN': 'sn', 'URU': 'uy', 
+        'ECU': 'ec', 'COL': 'co', 'PER': 'pe', 'CHI': 'cl', 'AUS': 'au'
+    };
+    return mapa[tla.toUpperCase()] || tla.slice(0, 2).toLowerCase();
+}
 
 async function sincronizarMundial() {
     try {
@@ -24,53 +37,49 @@ async function sincronizarMundial() {
 
         const partidosApi = respuestaApi.data.matches;
         
-        // --- NUEVO FILTRO ESTRICTO: SOLO DE 16AVOS EN ADELANTE ---
-        // Ignoramos todos los partidos que sean de Fase de Grupos ('GROUP_STAGE')
+        // Filtro estricto: Solo de 16avos en adelante
         const partidosFiltrados = partidosApi.filter(p => p.stage !== 'GROUP_STAGE');
         
         for (const pApi of partidosFiltrados) {
             try {
-                // Buscamos
+                // Buscamos si el partido ya existe en nuestra base de datos
                 const lista = await pb.collection('partidos').getList(1, 1, { filter: `api_id=${pApi.id}` });
                 
+                // Valores en tiempo real provenientes de la API de la FIFA
+                const nombreEquip1 = pApi.homeTeam?.name || "Por definir";
+                const nombreEquip2 = pApi.awayTeam?.name || "Por definir";
+                const codBandera1 = obtenerCodigoBandera(pApi.homeTeam?.tla);
+                const codBandera2 = obtenerCodigoBandera(pApi.awayTeam?.tla);
+
                 if (lista.items.length > 0) {
                     const record = lista.items[0];
                     
-                    let dataActualizar = {
+                    // SOLUCIÓN TOTAL: Ahora cada 5 minutos el motor sobreescribe los nombres y códigos.
+                    // Si cambia de "null" a un equipo real, impacta en la web inmediatamente de forma automática.
+                    await pb.collection('partidos').update(record.id, {
+                        equipo1: nombreEquip1,
+                        equipo2: nombreEquip2,
+                        codigo1: codBandera1,
+                        codigo2: codBandera2,
                         goles1: Number(pApi.score?.fullTime?.home ?? 0),
                         goles2: Number(pApi.score?.fullTime?.away ?? 0),
                         estado: pApi.status === 'FINISHED' ? 'finalizado' : (pApi.status === 'IN_PLAY' ? 'en_vivo' : 'pendiente')
-                    };
-
-                    // ACTUALIZACIÓN AUTOMÁTICA DE CLASIFICADOS:
-                    // Si en tu BD dice "Por definir" pero la FIFA ya confirmó qué país juega, se actualiza solo.
-                    const nombreApi1 = pApi.homeTeam?.name || 'Por definir';
-                    const nombreApi2 = pApi.awayTeam?.name || 'Por definir';
-
-                    if (record.equipo1 === 'Por definir' && nombreApi1 !== 'Por definir') {
-                        dataActualizar.equipo1 = nombreApi1;
-                        dataActualizar.codigo1 = pApi.homeTeam?.tla ? pApi.homeTeam.tla.slice(0, 2).toLowerCase() : "tbd";
-                    }
-                    
-                    if (record.equipo2 === 'Por definir' && nombreApi2 !== 'Por definir') {
-                        dataActualizar.equipo2 = nombreApi2;
-                        dataActualizar.codigo2 = pApi.awayTeam?.tla ? pApi.awayTeam.tla.slice(0, 2).toLowerCase() : "tbd";
-                    }
-
-                    await pb.collection('partidos').update(record.id, dataActualizar);
+                    });
                 } else {
+                    // Si el partido es nuevo, lo crea con los datos disponibles
                     await pb.collection('partidos').create({
                         api_id: pApi.id,
-                        equipo1: pApi.homeTeam?.name || "Por definir",
-                        equipo2: pApi.awayTeam?.name || "Por definir",
-                        codigo1: pApi.homeTeam?.tla ? pApi.homeTeam.tla.slice(0, 2).toLowerCase() : "tbd",
-                        codigo2: pApi.awayTeam?.tla ? pApi.awayTeam.tla.slice(0, 2).toLowerCase() : "tbd",
-                        estado: 'pendiente'
+                        equipo1: nombreEquip1,
+                        equipo2: nombreEquip2,
+                        codigo1: codBandera1,
+                        codigo2: codBandera2,
+                        goles1: Number(pApi.score?.fullTime?.home ?? 0),
+                        goles2: Number(pApi.score?.fullTime?.away ?? 0),
+                        estado: pApi.status === 'FINISHED' ? 'finalizado' : (pApi.status === 'IN_PLAY' ? 'en_vivo' : 'pendiente')
                     });
                 }
-                await sleep(500); // Pausa de medio segundo para no saturar
+                await sleep(500); // Pausa de medio segundo para estabilidad del servidor
             } catch (err) {
-                // Ignoramos errores de duplicados, reportamos otros
                 if (err.status !== 400) console.error("Error en partido:", pApi.id);
             }
         }
@@ -81,4 +90,4 @@ async function sincronizarMundial() {
 }
 
 sincronizarMundial();
-setInterval(sincronizarMundial, 300000); // Cambiado a 5 minutos (300,000ms) para que no moleste tanto
+setInterval(sincronizarMundial, 300000); // Sincronización automática cada 5 minutos
