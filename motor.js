@@ -1,12 +1,8 @@
 import PocketBase from 'pocketbase';
 import axios from 'axios';
 
-// --- CONFIGURACIÓN ---
-// Sustituí 'TU_TOKEN_REAL' por tu API Key de football-data.org
-const API_TOKEN = 'e9a9228d3a9f48b0952544fa76efd3c9';
+const API_TOKEN = 'e9a9228d3a9f48b0952544fa76efd3c9'; 
 const URL_POCKETBASE = 'https://fasterprode.pockethost.io/';
-
-// Estas variables se leen del panel de Render (Settings -> Environment)
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -14,11 +10,7 @@ const pb = new PocketBase(URL_POCKETBASE);
 
 async function sincronizarMundial() {
     try {
-        console.log("Iniciando sincronización...");
-        
-        // Autenticación usando la colección de superusuarios (Fix para versión nueva)
         await pb.collection('_superusers').authWithPassword(ADMIN_EMAIL, ADMIN_PASSWORD);
-        
         const respuestaApi = await axios.get(`https://api.football-data.org/v4/competitions/2000/matches`, {
             headers: { 'X-Auth-Token': API_TOKEN }
         });
@@ -27,23 +19,15 @@ async function sincronizarMundial() {
         
         for (const pApi of partidosApi) {
             try {
-                // Buscamos el partido en nuestra base
                 const registroPB = await pb.collection('partidos').getFirstListItem(`api_id=${pApi.id}`);
                 
-                // --- REGLA DE ORO: PROTECCIÓN DE NOMBRES ---
-                // Solo actualizamos si el valor actual es "Por definir" y la API trae un nombre real
                 const nombreApi1 = pApi.homeTeam?.name || 'Por definir';
                 const nombreApi2 = pApi.awayTeam?.name || 'Por definir';
 
-                const nuevoEquipo1 = (registroPB.equipo1 === 'Por definir' || !registroPB.equipo1) && nombreApi1 !== 'Por definir' 
-                    ? nombreApi1 
-                    : registroPB.equipo1;
-                    
-                const nuevoEquipo2 = (registroPB.equipo2 === 'Por definir' || !registroPB.equipo2) && nombreApi2 !== 'Por definir' 
-                    ? nombreApi2 
-                    : registroPB.equipo2;
+                const nuevoEquipo1 = (registroPB.equipo1 === 'Por definir' || !registroPB.equipo1) && nombreApi1 !== 'Por definir' ? nombreApi1 : registroPB.equipo1;
+                const nuevoEquipo2 = (registroPB.equipo2 === 'Por definir' || !registroPB.equipo2) && nombreApi2 !== 'Por definir' ? nombreApi2 : registroPB.equipo2;
                 
-                // Actualizamos goles y estado, pero respetamos el nombre que ya guardamos
+                // Actualización
                 await pb.collection('partidos').update(registroPB.id, {
                     equipo1: nuevoEquipo1,
                     equipo2: nuevoEquipo2,
@@ -53,7 +37,6 @@ async function sincronizarMundial() {
                 });
                 
             } catch (err) {
-                // Si el partido no existe, lo creamos
                 if (err.status === 404) {
                     await pb.collection('partidos').create({
                         api_id: pApi.id,
@@ -63,15 +46,16 @@ async function sincronizarMundial() {
                         codigo2: pApi.awayTeam?.tla ? pApi.awayTeam.tla.slice(0, 2).toLowerCase() : "tbd",
                         estado: 'pendiente'
                     });
+                } else {
+                    // ESTO ES LO NUEVO: Te va a mostrar el error detallado de validación
+                    console.error("Error validando partido", pApi.id, ":", JSON.stringify(err.data));
                 }
             }
         }
-        console.log("Sincronización exitosa.");
     } catch (e) { 
-        console.error("Error en sincronización:", e.message); 
+        console.error("Error global:", e.message); 
     }
 }
 
-// Ejecutar al arrancar y luego cada 60 segundos
 sincronizarMundial();
 setInterval(sincronizarMundial, 60000);
