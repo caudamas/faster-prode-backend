@@ -11,7 +11,6 @@ const pb = new PocketBase(URL_POCKETBASE);
 async function sincronizarMundial() {
     try {
         console.log("Iniciando sincronización...");
-        
         await pb.collection('_superusers').authWithPassword(ADMIN_EMAIL, ADMIN_PASSWORD);
         
         const respuestaApi = await axios.get(`https://api.football-data.org/v4/competitions/2000/matches`, {
@@ -22,24 +21,20 @@ async function sincronizarMundial() {
         
         for (const pApi of partidosApi) {
             try {
+                // Intentamos buscar el partido
                 const registroPB = await pb.collection('partidos').getFirstListItem(`api_id=${pApi.id}`);
                 
-                const nombreApi1 = pApi.homeTeam?.name || 'Por definir';
-                const nombreApi2 = pApi.awayTeam?.name || 'Por definir';
-
-                const nuevoEquipo1 = (registroPB.equipo1 === 'Por definir' || !registroPB.equipo1) && nombreApi1 !== 'Por definir' ? nombreApi1 : registroPB.equipo1;
-                const nuevoEquipo2 = (registroPB.equipo2 === 'Por definir' || !registroPB.equipo2) && nombreApi2 !== 'Por definir' ? nombreApi2 : registroPB.equipo2;
-                
-                // Actualización - Nos aseguramos que goles sean números sí o sí
+                // Actualización
                 await pb.collection('partidos').update(registroPB.id, {
-                    equipo1: nuevoEquipo1,
-                    equipo2: nuevoEquipo2,
+                    equipo1: pApi.homeTeam?.name || "Por definir",
+                    equipo2: pApi.awayTeam?.name || "Por definir",
                     goles1: Number(pApi.score?.fullTime?.home || 0),
                     goles2: Number(pApi.score?.fullTime?.away || 0),
                     estado: pApi.status === 'FINISHED' ? 'finalizado' : (pApi.status === 'IN_PLAY' ? 'en_vivo' : 'pendiente')
                 });
                 
             } catch (err) {
+                // Si da error 404, intentamos crearlo
                 if (err.status === 404) {
                     try {
                         await pb.collection('partidos').create({
@@ -51,16 +46,18 @@ async function sincronizarMundial() {
                             estado: 'pendiente'
                         });
                     } catch (createErr) {
-                        console.error("ERROR CREANDO PARTIDO:", JSON.stringify(createErr.data));
+                        // AQUÍ FORZAMOS EL ERROR DETALLADO
+                        console.error("ERROR CRÍTICO AL CREAR PARTIDO:", JSON.stringify(createErr.response?.data || createErr));
                     }
                 } else {
-                    console.error("ERROR ACTUALIZANDO PARTIDO:", JSON.stringify(err.data));
+                    // AQUÍ FORZAMOS EL ERROR DETALLADO DE ACTUALIZACIÓN
+                    console.error("ERROR CRÍTICO AL ACTUALIZAR PARTIDO:", JSON.stringify(err.response?.data || err));
                 }
             }
         }
         console.log("Sincronización exitosa.");
     } catch (e) { 
-        console.error("ERROR GLOBAL (Auth o API):", JSON.stringify(e.data || e.message)); 
+        console.error("ERROR GLOBAL DE CONEXIÓN:", JSON.stringify(e.response?.data || e.message)); 
     }
 }
 
